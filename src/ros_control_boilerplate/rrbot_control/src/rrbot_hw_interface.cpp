@@ -143,8 +143,8 @@ void RRBotHWInterface::read(ros::Duration &elapsed_time)
   if (init_ok >= 0)
   {
    printf("TACH: %5d %5d",  left_tach.count, right_tach.count);
-    joint_position_[LEFT_WHEEL_ID] = left_tach.count;
-    joint_position_[RIGHT_WHEEL_ID] = right_tach.count;
+    joint_position_[LEFT_WHEEL_ID] = 2.0 * PI / left_tach.count / 5.0;
+    joint_position_[RIGHT_WHEEL_ID] = 2.0 * PI / right_tach.count / 5.0;
   }
 }
 
