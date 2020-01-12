@@ -35,7 +35,7 @@
 /* Author: Dave Coleman
    Desc:   Example ros_control hardware interface blank template for the RRBot
            For a more detailed simulation example, see sim_hw_interface.cpp
-*/
+***/
 
 #include <rrbot_control/rrbot_hw_interface.h>
 #include <stdio.h>
@@ -71,6 +71,7 @@ static void tachometer_cb(int pi, unsigned user_gpio, unsigned level, uint32_t t
         tach->count += tach->dir;
 }
 
+/* Convert rad per sec into pwm */
 static int get_vel_pwm(int cmd)
 {
   int cc = (int)(255.0 * abs(cmd) / 4.0);
@@ -143,8 +144,8 @@ void RRBotHWInterface::read(ros::Duration &elapsed_time)
   if (init_ok >= 0)
   {
    printf("TACH: %5d %5d",  left_tach.count, right_tach.count);
-    joint_position_[LEFT_WHEEL_ID] = left_tach.count;
-    joint_position_[RIGHT_WHEEL_ID] = right_tach.count;
+    joint_position_[LEFT_WHEEL_ID] = 2.0 * PI / left_tach.count / 5.0;
+    joint_position_[RIGHT_WHEEL_ID] = 2.0 * PI / right_tach.count / 5.0;
   }
 }
 
