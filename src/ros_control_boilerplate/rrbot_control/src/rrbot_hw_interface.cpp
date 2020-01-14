@@ -55,10 +55,18 @@
 #define PIN_R_A         23
 #define PIN_R_B         24
 
+#define LEFT_TACH_PIN   5
+#define RIGHT_TACH_PIN  6
+#define TACH_WDT_MS	100
+
 typedef struct {
   long count;
   signed dir;
   int id;
+
+  int do_init;
+  uint32_t last_tick;
+  float freq;
 }tachdata;
 
 static     tachdata left_tach, right_tach;
@@ -67,8 +75,24 @@ static void tachometer_cb(int pi, unsigned user_gpio, unsigned level, uint32_t t
 {
   tachdata* tach = (tachdata*)userdata;
   //printf("%d\n", level);
-  if (level == 1)
+  if (level == 1) {
         tach->count += tach->dir;
+	if (tach->do_init) {
+		tach->last_tick = tick;
+		tach->do_init = 0;
+	} else {
+		if (tick > tach->last_tick) {
+			tach->freq = 1000000.0 / (tick - tach->last_tick);
+			tach->last_tick = tick;
+		} else {
+			tach->do_init = 1;
+		}
+	}
+  }
+  else if (level == 2) {
+	tach->do_init = 1;
+	tach->freq = 0;
+  }
 }
 
 /* Convert rad per sec into pwm */
@@ -122,17 +146,19 @@ RRBotHWInterface::RRBotHWInterface(ros::NodeHandle &nh, urdf::Model *urdf_model)
 {
     left_tach.count = 0;
     right_tach.count = 0;
-  init_ok = io_init();
-  if (init_ok >= 0){
-        set_glitch_filter(init_ok, 5, 10000);
-        set_glitch_filter(init_ok, 6, 10000);
-        left_tach.id = callback_ex(init_ok, 5, RISING_EDGE, tachometer_cb, &left_tach);
-        right_tach.id = callback_ex(init_ok, 6, RISING_EDGE, tachometer_cb, &right_tach);
+    init_ok = io_init();
+    if (init_ok >= 0){
+        set_glitch_filter(init_ok, LEFT_TACH_PIN, 10000);
+        set_glitch_filter(init_ok, RIGHT_TACH_PIN, 10000);
+        left_tach.id = callback_ex(init_ok, LEFT_TACH_PIN, RISING_EDGE, tachometer_cb, &left_tach);
+        right_tach.id = callback_ex(init_ok, RIGHT_TACH_PIN, RISING_EDGE, tachometer_cb, &right_tach);
+	set_watchdog(init_ok, LEFT_TACH_PIN, TACH_WDT_MS);
+	set_watchdog(init_ok, RIGHT_TACH_PIN, TACH_WDT_MS);
 
-    ROS_INFO_NAMED("rrbot_hw_interface", "RRBotHWInterface Ready.");
-  } else {
-    ROS_ERROR_NAMED("rrbot_hw_interface", "RRBotHWInterface Failed to initalize.");
-  }
+        ROS_INFO_NAMED("rrbot_hw_interface", "RRBotHWInterface Ready.");
+    } else {
+        ROS_ERROR_NAMED("rrbot_hw_interface", "RRBotHWInterface Failed to initalize.");
+    }
 }
 
 RRBotHWInterface::~RRBotHWInterface(){
@@ -143,9 +169,11 @@ void RRBotHWInterface::read(ros::Duration &elapsed_time)
 {
   if (init_ok >= 0)
   {
-   printf("TACH: %5d %5d",  left_tach.count, right_tach.count);
-    joint_position_[LEFT_WHEEL_ID] = 2.0 * PI / left_tach.count / 5.0;
-    joint_position_[RIGHT_WHEEL_ID] = 2.0 * PI / right_tach.count / 5.0;
+    //printf("TACH: %5d %5d",  left_tach.count, right_tach.count);
+    joint_position_[LEFT_WHEEL_ID] = (2.0 * M_PI / 5.0) * left_tach.count;
+    joint_position_[RIGHT_WHEEL_ID] = (2.0 * M_PI / 5.0) * right_tach.count;
+    joint_velocity_[LEFT_WHEEL_ID] = (2.0 * M_PI / 5.0) * left_tach.freq;
+    joint_velocity_[RIGHT_WHEEL_ID] = (2.0 * M_PI / 5.0) * right_tach.freq;
   }
 }
 
@@ -161,15 +189,15 @@ void RRBotHWInterface::write(ros::Duration &elapsed_time)
     //joint_velocity_command_[joint_id]
     if (joint_velocity_command_[LEFT_WHEEL_ID] < 0)
     {
-      gpio_write(init_ok, PIN_L_A, 0);
-      gpio_write(init_ok, PIN_L_B, 1);
+      gpio_write(init_ok, PIN_L_A, 1);
+      gpio_write(init_ok, PIN_L_B, 0);
       set_PWM_dutycycle(init_ok, PIN_L_ENB, get_vel_pwm(joint_velocity_command_[LEFT_WHEEL_ID]));
       left_tach.dir = -1;
     }
     else if (joint_velocity_command_[LEFT_WHEEL_ID] > 0)
     {
-      gpio_write(init_ok, PIN_L_A, 1);
-      gpio_write(init_ok, PIN_L_B, 0);
+      gpio_write(init_ok, PIN_L_A, 0);
+      gpio_write(init_ok, PIN_L_B, 1);
       set_PWM_dutycycle(init_ok, PIN_L_ENB, get_vel_pwm(joint_velocity_command_[LEFT_WHEEL_ID]));
       left_tach.dir = 1;
     }
@@ -181,19 +209,17 @@ void RRBotHWInterface::write(ros::Duration &elapsed_time)
       left_tach.dir = 0;
     }
 
-    joint_velocity_[LEFT_WHEEL_ID] = joint_velocity_command_[LEFT_WHEEL_ID];    
-
     if (joint_velocity_command_[RIGHT_WHEEL_ID] < 0)
     {
-      gpio_write(init_ok, PIN_R_A, 0);
-      gpio_write(init_ok, PIN_R_B, 1);
+      gpio_write(init_ok, PIN_R_A, 1);
+      gpio_write(init_ok, PIN_R_B, 0);
       set_PWM_dutycycle(init_ok, PIN_R_ENB, get_vel_pwm(joint_velocity_command_[RIGHT_WHEEL_ID]));
       right_tach.dir = -1;
     }
     else if (joint_velocity_command_[RIGHT_WHEEL_ID] > 0)
     {
-      gpio_write(init_ok, PIN_R_A, 1);
-      gpio_write(init_ok, PIN_R_B, 0);
+      gpio_write(init_ok, PIN_R_A, 0);
+      gpio_write(init_ok, PIN_R_B, 1);
       set_PWM_dutycycle(init_ok, PIN_R_ENB, get_vel_pwm(joint_velocity_command_[RIGHT_WHEEL_ID]));
       right_tach.dir = 1;
     }
@@ -204,8 +230,6 @@ void RRBotHWInterface::write(ros::Duration &elapsed_time)
       set_PWM_dutycycle(init_ok, PIN_R_ENB, 255);
       right_tach.dir = 0;
     }
-
-    joint_velocity_[RIGHT_WHEEL_ID] = joint_velocity_command_[RIGHT_WHEEL_ID];    
 
   }
 }

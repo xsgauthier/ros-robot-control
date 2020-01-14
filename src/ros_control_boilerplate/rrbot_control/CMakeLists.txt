@@ -11,6 +11,7 @@ add_library(rrbot_hw_interface
 target_link_libraries(rrbot_hw_interface
   generic_hw_interface
   pigpiod_if2
+  control_toolbox
   ${catkin_LIBRARIES}
 )
 
